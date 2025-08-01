@@ -9,6 +9,20 @@
 <body>
     <div class="container">
         <h1>Telegram 机器人消息</h1>
+
+        <div class="config-section">
+            <h2>配置</h2>
+            <div class="config-item">
+                <label for="telegramTokenSelect">选择 Telegram Token:</label>
+                <select id="telegramTokenSelect"></select>
+            </div>
+            <div class="config-item">
+                <label for="newTelegramToken">添加新 Token:</label>
+                <input type="text" id="newTelegramToken" placeholder="输入新的 Telegram Bot Token">
+                <button id="addTokenButton">添加 Token</button>
+            </div>
+        </div>
+
         <div id="messages-container" class="messages-container">
             <!-- 消息将在这里动态加载 -->
             <p class="placeholder">等待接收 Telegram 消息...</p>

@@ -85,3 +85,104 @@ h1 {
     padding: 20px;
     font-style: italic;
 }
+
+/* 新增的配置区域样式 */
+.config-section {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 20px;
+    margin-bottom: 25px;
+}
+
+.config-section h2 {
+    color: #007bff;
+    margin-top: 0;
+    margin-bottom: 15px;
+    font-size: 1.5em;
+    text-align: center;
+}
+
+.config-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.config-item label {
+    flex-shrink: 0;
+    margin-right: 10px;
+    font-weight: bold;
+    color: #555;
+}
+
+.config-item select,
+.config-item input[type="text"] {
+    flex-grow: 1;
+    padding: 8px 12px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 1em;
+    margin-right: 10px;
+}
+
+.config-item button {
+    padding: 8px 15px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: background-color 0.2s ease;
+}
+
+.config-item button:hover {
+    background-color: #0056b3;
+}
+
+.config-item button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+/* 发送到 Dify 按钮样式 */
+.send-to-dify-button {
+    padding: 6px 12px;
+    background-color: #6c757d; /* 灰色 */
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+    margin-top: 10px;
+    transition: background-color 0.2s ease;
+    float: right; /* 靠右浮动 */
+}
+
+.send-to-dify-button:hover {
+    background-color: #5a6268;
+}
+
+.send-to-dify-button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+/* Dify 按钮状态样式 */
+.send-to-dify-button.sending {
+    background-color: #ffc107; /* 黄色 */
+    color: #333;
+}
+
+.send-to-dify-button.started {
+    background-color: #17a2b8; /* 蓝色 */
+}
+
+.send-to-dify-button.succeeded {
+    background-color: #28a745; /* 绿色 */
+}
+
+.send-to-dify-button.failed {
+    background-color: #dc3545; /* 红色 */
+}

@@ -3,6 +3,8 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
+const clients = new Map(); // 存储 SSE 客户端 { workflow_run_id: [res1, res2, ...] }
+
 const app = express();
 const PORT = 3000;
 
@@ -16,17 +18,21 @@ try {
     process.exit(1);
 }
 
-const TELEGRAM_BOT_TOKEN = config.telegramBotToken;
-const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
-const LOG_FILE = path.join(__dirname, 'messages.log');
+let TELEGRAM_BOT_TOKEN = config.telegram.activeToken;
+let TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+const MESSAGE_LOG_FILE = path.join(__dirname, 'messages.log');
+const DIFY_LOG_FILE = path.join(__dirname, 'dify_api.log');
 
 let lastUpdateId = 0;
 let isPolling = false;
 let messages = []; // 内存中存储的消息，用于前端展示
 
 // 确保日志文件存在
-if (!fs.existsSync(LOG_FILE)) {
-    fs.writeFileSync(LOG_FILE, '', 'utf8');
+if (!fs.existsSync(MESSAGE_LOG_FILE)) {
+    fs.writeFileSync(MESSAGE_LOG_FILE, '', 'utf8');
+}
+if (!fs.existsSync(DIFY_LOG_FILE)) {
+    fs.writeFileSync(DIFY_LOG_FILE, '', 'utf8');
 }
 
 // 轮询 Telegram API
@@ -38,7 +44,7 @@ async function pollTelegramUpdates() {
 
     isPolling = true;
     try {
-        console.log(`正在轮询 Telegram API，offset: ${lastUpdateId}`);
+        console.log(`正在轮询 Telegram API，offset: ${lastUpdateId} (使用 Token: ${TELEGRAM_BOT_TOKEN.substring(0, 10)}...)`);
         const response = await axios.get(`${TELEGRAM_API_URL}/getUpdates`, {
             params: {
                 offset: lastUpdateId,
@@ -78,8 +84,8 @@ async function pollTelegramUpdates() {
 
                         const logEntry = `[${date}] [UpdateID: ${update.update_id}] [ChatID: ${chatId}] ${from}: ${text}\n`;
 
-                        // 写入日志文件
-                        fs.appendFileSync(LOG_FILE, logEntry, 'utf8');
+                        // 写入消息日志文件
+                        fs.appendFileSync(MESSAGE_LOG_FILE, logEntry, 'utf8');
                         console.log(`新消息已写入日志: ${logEntry.trim()}`);
 
                         // 添加到内存中的消息列表，只保留最新N条
@@ -120,12 +126,199 @@ pollTelegramUpdates();
 
 // 提供静态文件服务
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json()); // 用于解析 POST 请求的 JSON body
 
 // API 接口，用于前端获取消息
 app.get('/api/messages', (req, res) => {
     // 返回内存中的消息列表
     res.json(messages);
 });
+
+// API 接口，用于前端获取配置（包括所有 Token 和当前激活的 Token）
+app.get('/api/config', (req, res) => {
+    res.json({
+        telegramTokens: config.telegram.tokens,
+        activeTelegramToken: config.telegram.activeToken,
+        difyApiUrl: config.dify.apiUrl,
+        difyApiKey: config.dify.apiKey
+    });
+});
+
+// API 接口，用于前端添加新的 Telegram Token
+app.post('/api/tokens', (req, res) => {
+    const newToken = req.body.token;
+    if (newToken && !config.telegram.tokens.includes(newToken)) {
+        config.telegram.tokens.push(newToken);
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+        res.json({ success: true, message: 'Token 添加成功。', tokens: config.telegram.tokens });
+    } else {
+        res.status(400).json({ success: false, message: 'Token 无效或已存在。' });
+    }
+});
+
+// API 接口，用于前端设置当前激活的 Telegram Token
+app.put('/api/tokens/active', (req, res) => {
+    const newActiveToken = req.body.token;
+    if (newActiveToken && config.telegram.tokens.includes(newActiveToken)) {
+        config.telegram.activeToken = newActiveToken;
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+        TELEGRAM_BOT_TOKEN = newActiveToken; // 更新内存中的 Token
+        TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`; // 更新 API URL
+        lastUpdateId = 0; // 重置 offset，从头开始获取新 Token 的消息
+        isPolling = false; // 停止当前轮询，让 setTimeout 重新启动
+        messages = []; // 清空内存中的消息
+        console.log(`Telegram Bot Token 已更新为: ${newActiveToken.substring(0, 10)}...`);
+        res.json({ success: true, message: '激活 Token 更新成功，轮询将重启。', activeToken: newActiveToken });
+    } else {
+        res.status(400).json({ success: false, message: 'Token 无效或不在列表中。' });
+    }
+});
+
+// API 接口，用于将消息发送到 Dify
+// API 接口，用于将消息发送到 Dify 并启动 SSE
+app.post('/api/send-to-dify', async (req, res) => {
+    const { content, chatId, telToken } = req.body;
+    const difyConfig = config.dify;
+
+    if (!difyConfig || !difyConfig.apiUrl || !difyConfig.apiKey) {
+        const errorMsg = 'Dify API 配置缺失。请检查 config.json。';
+        console.error(errorMsg);
+        fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] 错误: ${errorMsg}\n`, 'utf8');
+        return res.status(500).json({ success: false, message: errorMsg });
+    }
+
+    const requestData = {
+        inputs: {
+            conet: content,
+            ChatID: chatId,
+            tel_token: telToken
+        },
+        response_mode: "streaming",
+        user: "abc-123"
+    };
+
+    try {
+        const difyResponse = await axios.post(difyConfig.apiUrl, requestData, {
+            headers: {
+                'Authorization': `Bearer ${difyConfig.apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            responseType: 'stream' // 接收流式响应
+        });
+
+        let workflowRunId = null;
+        let taskId = null;
+        let buffer = ''; // 用于拼接不完整的 JSON 数据
+
+        difyResponse.data.on('data', chunk => {
+            buffer += chunk.toString(); // 将新数据追加到缓冲区
+
+            let boundary;
+            while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+                const completeMessage = buffer.substring(0, boundary);
+                buffer = buffer.substring(boundary + 2); // 移除已处理的消息和分隔符
+
+                if (completeMessage.startsWith('data:')) {
+                    try {
+                        const eventData = JSON.parse(completeMessage.substring(5));
+                        const logEntry = `[${new Date().toLocaleString('zh-CN')}] Dify 流事件: ${JSON.stringify(eventData)}\n`;
+                        fs.appendFileSync(DIFY_LOG_FILE, logEntry, 'utf8');
+                        console.log('Dify 流事件已记录。');
+
+                        // 提取 workflow_run_id 和 task_id
+                        if (eventData.event === 'workflow_started') {
+                            workflowRunId = eventData.workflow_run_id;
+                            taskId = eventData.task_id;
+                            // 立即返回 workflow_run_id 给前端，让前端可以连接 SSE
+                            // 确保只发送一次响应头
+                            if (!res.headersSent) {
+                                res.json({ success: true, message: 'Dify 工作流已启动。', workflow_run_id: workflowRunId, task_id: taskId });
+                            }
+                        }
+
+                        // 如果有客户端连接到这个 workflow_run_id，则推送事件
+                        if (workflowRunId && clients.has(workflowRunId)) {
+                            clients.get(workflowRunId).forEach(clientRes => {
+                                clientRes.write(`data: ${JSON.stringify(eventData)}\n\n`);
+                            });
+                        }
+                    } catch (parseError) {
+                        console.error('解析 Dify 流数据失败:', parseError);
+                        fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] 解析 Dify 流数据失败: ${parseError.message}\n原始数据: ${completeMessage}\n`, 'utf8');
+                    }
+                }
+            }
+        });
+
+        difyResponse.data.on('end', () => {
+            console.log('Dify 流响应结束。');
+            // 当流结束时，通知所有相关客户端并清理
+            if (workflowRunId && clients.has(workflowRunId)) {
+                clients.get(workflowRunId).forEach(clientRes => {
+                    if (!clientRes.finished) { // 确保响应未结束
+                        clientRes.end(); // 结束 SSE 连接
+                    }
+                });
+                clients.delete(workflowRunId); // 清理客户端
+            }
+        });
+
+        difyResponse.data.on('error', streamError => {
+            console.error('Dify 流错误:', streamError);
+            const errorMsg = `Dify 流错误: ${streamError.message}`;
+            fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] Dify 流错误: ${streamError.message}\n`, 'utf8');
+            if (workflowRunId && clients.has(workflowRunId)) {
+                clients.get(workflowRunId).forEach(clientRes => {
+                    if (!clientRes.finished) { // 确保响应未结束
+                        clientRes.write(`data: ${JSON.stringify({ event: 'error', message: errorMsg })}\n\n`);
+                        clientRes.end();
+                    }
+                });
+                clients.delete(workflowRunId);
+            }
+            // 如果在 workflow_started 之前发生错误，需要在这里返回错误
+            if (!res.headersSent) {
+                res.status(500).json({ success: false, message: errorMsg });
+            }
+        });
+
+    } catch (error) {
+        const errorMsg = `Dify API 请求失败: ${error.message}`;
+        console.error(errorMsg);
+        const logEntry = `[${new Date().toLocaleString('zh-CN')}] Dify API 请求失败。\n请求数据: ${JSON.stringify(requestData)}\n错误: ${error.message}\n`;
+        fs.appendFileSync(DIFY_LOG_FILE, logEntry, 'utf8');
+        res.status(500).json({ success: false, message: errorMsg, error: error.response ? error.response.data : error.message });
+    }
+});
+
+// SSE 接口，用于前端监听 Dify 状态更新
+app.get('/api/dify-status/:workflowRunId', (req, res) => {
+    const workflowRunId = req.params.workflowRunId;
+
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+    });
+
+    // 将客户端响应对象添加到 Map 中
+    if (!clients.has(workflowRunId)) {
+        clients.set(workflowRunId, []);
+    }
+    clients.get(workflowRunId).push(res);
+
+    req.on('close', () => {
+        console.log(`客户端断开连接: ${workflowRunId}`);
+        // 在尝试过滤之前，先检查 workflowRunId 对应的客户端列表是否存在
+        if (clients.has(workflowRunId)) {
+            clients.set(workflowRunId, clients.get(workflowRunId).filter(client => client !== res));
+            if (clients.get(workflowRunId).length === 0) {
+                clients.delete(workflowRunId);
+            }
+        }
+    });
+});
+
 
 // 启动服务器
 app.listen(PORT, () => {

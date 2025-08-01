@@ -1,3 +1,12 @@
 {
-  "telegramBotToken": "8431439436:AAGxjAiScfq9cm-uE-HRJFlE4BWYMSnbhNk"
+  "telegram": {
+    "tokens": [
+      "8431439436:AAGxjAiScfq9cm-uE-HRJFlE4BWYMSnbhNk"
+    ],
+    "activeToken": "8431439436:AAGxjAiScfq9cm-uE-HRJFlE4BWYMSnbhNk"
+  },
+  "dify": {
+    "apiUrl": "http://192.168.0.250:50080/v1/workflows/run",
+    "apiKey": "app-gIQ3ghLyu5nJLtpKOu1hif8S"
+  }
 }
