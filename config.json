@@ -8,5 +8,9 @@
   "dify": {
     "apiUrl": "http://192.168.0.250:50080/v1/workflows/run",
     "apiKey": "app-gIQ3ghLyu5nJLtpKOu1hif8S"
+  },
+  "autoSend": {
+    "enabled": true,
+    "filterKeyword": "20250813"
   }
 }

@@ -77,6 +77,7 @@ h1 {
     color: #666;
     display: block;
     text-align: right; /* 时间戳靠右对齐 */
+    margin-top: 5px; /* 与按钮保持一定距离 */
 }
 
 .placeholder {
@@ -84,6 +85,13 @@ h1 {
     color: #888;
     padding: 20px;
     font-style: italic;
+}
+
+/* 消息操作区域 */
+.message-actions {
+    display: flex;
+    justify-content: flex-end; /* 按钮靠右对齐 */
+    margin-top: 10px; /* 与消息内容保持距离 */
 }
 
 /* 新增的配置区域样式 */

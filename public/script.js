@@ -3,11 +3,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const telegramTokenSelect = document.getElementById('telegramTokenSelect');
     const newTelegramTokenInput = document.getElementById('newTelegramToken');
     const addTokenButton = document.getElementById('addTokenButton');
+    const autoSendToggle = document.getElementById('autoSendToggle');
+    const filterKeywordInput = document.getElementById('filterKeywordInput');
+    const saveAutoSendSettingsButton = document.getElementById('saveAutoSendSettings');
 
     let lastMessageId = null; // 用于跟踪最后一条消息的ID，防止重复显示
     let currentDifyConfig = {}; // 存储 Dify API 配置
+    let currentActiveTelegramToken = ''; // 存储当前激活的 Telegram Token
 
-    // --- Token 管理功能 ---
+    // --- 配置管理功能 (包括 Token 和自动发送) ---
     async function fetchConfig() {
         try {
             const response = await fetch('/api/config');
@@ -16,7 +20,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 apiUrl: config.difyApiUrl,
                 apiKey: config.difyApiKey
             };
+            currentActiveTelegramToken = config.activeTelegramToken; // 更新当前激活的 Token
+
             populateTokenSelect(config.telegramTokens, config.activeTelegramToken);
+            
+            // 设置自动发送开关和关键词
+            autoSendToggle.checked = config.autoSendEnabled;
+            filterKeywordInput.value = config.autoSendFilterKeyword;
+
         } catch (error) {
             console.error('获取配置失败:', error);
             alert('无法加载配置，请检查后端服务。');
@@ -114,12 +125,25 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <div class="message-body">${msg.text}</div>
                         <span class="timestamp">${msg.date}</span>
-                        <button class="send-to-dify-button" 
-                                data-content="${encodeURIComponent(msg.text)}" 
-                                data-chatid="${msg.chatId}"
-                                data-teltoken="${telegramTokenSelect.value}">发送到 Dify</button>
+                        <div class="message-actions">
+                            <button class="send-to-dify-button" 
+                                    data-content="${encodeURIComponent(msg.text)}" 
+                                    data-chatid="${msg.chatId}"
+                                    data-teltoken="${currentActiveTelegramToken}"
+                                    ${msg.autoSent ? 'disabled' : ''}>
+                                ${msg.autoSent ? '已自动发送' : '发送到 Dify'}
+                            </button>
+                        </div>
                     `;
                     messagesContainer.appendChild(messageElement);
+
+                    // 如果是自动发送的消息，立即设置其按钮样式
+                    if (msg.autoSent) {
+                        const autoSentButton = messageElement.querySelector('.send-to-dify-button');
+                        if (autoSentButton) {
+                            autoSentButton.classList.add('succeeded'); // 标记为成功发送的样式
+                        }
+                    }
                 });
 
                 // 更新最后一条消息的ID
@@ -129,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
                 // 为新添加的按钮绑定事件
-                document.querySelectorAll('.send-to-dify-button').forEach(button => {
+                document.querySelectorAll('.send-to-dify-button:not([disabled])').forEach(button => {
                     button.onclick = sendToDify;
                 });
             }
@@ -139,7 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- 发送到 Dify 功能 ---
     // --- 发送到 Dify 功能 ---
     async function sendToDify(event) {
         const button = event.target;
@@ -213,6 +236,32 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('发送到 Dify 失败，请检查网络或后端。');
         }
     }
+
+    // --- 自动发送设置保存功能 ---
+    saveAutoSendSettingsButton.addEventListener('click', async () => {
+        const enabled = autoSendToggle.checked;
+        const filterKeyword = filterKeywordInput.value.trim();
+
+        try {
+            const response = await fetch('/api/autosend/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled, filterKeyword })
+            });
+            const result = await response.json();
+            if (result.success) {
+                alert(result.message);
+                // 重新加载配置以确保前端状态同步
+                fetchConfig(); 
+            } else {
+                alert(result.message);
+            }
+        } catch (error) {
+            console.error('保存自动发送设置失败:', error);
+            alert('保存自动发送设置失败，请检查网络或后端。');
+        }
+    });
+
 
     // 首次加载时获取配置和消息
     fetchConfig();

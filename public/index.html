@@ -21,6 +21,17 @@
                 <input type="text" id="newTelegramToken" placeholder="输入新的 Telegram Bot Token">
                 <button id="addTokenButton">添加 Token</button>
             </div>
+
+            <h3>自动发送设置</h3>
+            <div class="config-item">
+                <label for="autoSendToggle">启用自动发送:</label>
+                <input type="checkbox" id="autoSendToggle">
+            </div>
+            <div class="config-item">
+                <label for="filterKeywordInput">筛选关键词:</label>
+                <input type="text" id="filterKeywordInput" placeholder="消息开头匹配的关键词 (例如: '自动:')">
+            </div>
+            <button id="saveAutoSendSettings">保存自动发送设置</button>
         </div>
 
         <div id="messages-container" class="messages-container">
