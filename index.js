@@ -39,14 +39,15 @@ if (!fs.existsSync(DIFY_LOG_FILE)) {
 }
 
 // 封装发送到 Dify 的逻辑
-// 增加一个可选的 `res` 参数，仅在手动发送时传递
-async function sendToDifyWorkflow(content, chatId, telToken, isAutoSend = false, res = null) {
+// 增加一个可选的 `res` 参数（仅在手动发送时传递）和 `userName` 参数
+async function sendToDifyWorkflow(content, chatId, telToken, userName, isAutoSend = false, res = null) {
     const difyConfig = config.dify;
+    const logPrefix = isAutoSend ? '[自动发送]' : '[手动发送]';
 
     if (!difyConfig || !difyConfig.apiUrl || !difyConfig.apiKey) {
         const errorMsg = 'Dify API 配置缺失。请检查 config.json。';
         console.error(errorMsg);
-        fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] 错误: ${errorMsg}\n`, 'utf8');
+        fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] ${logPrefix} 错误: ${errorMsg}\n`, 'utf8');
         if (!isAutoSend && res && !res.headersSent) {
             res.status(500).json({ success: false, message: errorMsg });
         }
@@ -60,8 +61,11 @@ async function sendToDifyWorkflow(content, chatId, telToken, isAutoSend = false,
             tel_token: telToken
         },
         response_mode: "streaming",
-        user: "abc-123"
+        user: userName || "abc-123" // 使用 userName，如果不存在则回退到默认值
     };
+
+    fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] ${logPrefix} 启动。User: "${requestData.user}", Content: "${content.substring(0, 50)}..."\n`, 'utf8');
+    console.log(`${logPrefix} Dify 工作流启动。User: "${requestData.user}"`);
 
     try {
         const difyResponse = await axios.post(difyConfig.apiUrl, requestData, {
@@ -87,9 +91,9 @@ async function sendToDifyWorkflow(content, chatId, telToken, isAutoSend = false,
                 if (completeMessage.startsWith('data:')) {
                     try {
                         const eventData = JSON.parse(completeMessage.substring(5));
-                        const logEntry = `[${new Date().toLocaleString('zh-CN')}] Dify 流事件: ${JSON.stringify(eventData)}\n`;
-                        fs.appendFileSync(DIFY_LOG_FILE, logEntry, 'utf8');
-                        console.log('Dify 流事件已记录。');
+                        // 移除冗余的流事件日志
+                        // fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] Dify 流事件: ${JSON.stringify(eventData)}\n`, 'utf8');
+                        // console.log('Dify 流事件已记录。');
 
                         if (eventData.event === 'workflow_started') {
                             workflowRunId = eventData.workflow_run_id;
@@ -97,6 +101,13 @@ async function sendToDifyWorkflow(content, chatId, telToken, isAutoSend = false,
                             if (!isAutoSend && res && !res.headersSent) {
                                 res.json({ success: true, message: 'Dify 工作流已启动。', workflow_run_id: workflowRunId, task_id: taskId });
                             }
+                        } else if (eventData.event === 'workflow_finished') {
+                            const status = eventData.data.status;
+                            const elapsedTime = eventData.data.elapsed_time;
+                            const error = eventData.data.error;
+                            const finishLog = `[${new Date().toLocaleString('zh-CN')}] ${logPrefix} 工作流结束。RunID: ${workflowRunId}, Status: ${status}, Time: ${elapsedTime ? `${elapsedTime.toFixed(2)}s` : 'N/A'}${error ? `, Error: "${error}"` : ''}\n`;
+                            fs.appendFileSync(DIFY_LOG_FILE, finishLog, 'utf8');
+                            console.log(`${logPrefix} 工作流结束。Status: ${status}`);
                         }
 
                         if (workflowRunId && clients.has(workflowRunId)) {
@@ -106,14 +117,14 @@ async function sendToDifyWorkflow(content, chatId, telToken, isAutoSend = false,
                         }
                     } catch (parseError) {
                         console.error('解析 Dify 流数据失败:', parseError);
-                        fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] 解析 Dify 流数据失败: ${parseError.message}\n原始数据: ${completeMessage}\n`, 'utf8');
+                        fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] ${logPrefix} 解析 Dify 流数据失败: ${parseError.message}\n原始数据: ${completeMessage}\n`, 'utf8');
                     }
                 }
             }
         });
 
         difyResponse.data.on('end', () => {
-            console.log('Dify 流响应结束。');
+            console.log(`${logPrefix} Dify 流响应结束。`);
             if (workflowRunId && clients.has(workflowRunId)) {
                 clients.get(workflowRunId).forEach(clientRes => {
                     if (!clientRes.finished) {
@@ -125,9 +136,9 @@ async function sendToDifyWorkflow(content, chatId, telToken, isAutoSend = false,
         });
 
         difyResponse.data.on('error', streamError => {
-            console.error('Dify 流错误:', streamError);
+            console.error(`${logPrefix} Dify 流错误:`, streamError);
             const errorMsg = `Dify 流错误: ${streamError.message}`;
-            fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] Dify 流错误: ${streamError.message}\n`, 'utf8');
+            fs.appendFileSync(DIFY_LOG_FILE, `[${new Date().toLocaleString('zh-CN')}] ${logPrefix} Dify 流错误: ${streamError.message}\n`, 'utf8');
             if (workflowRunId && clients.has(workflowRunId)) {
                 clients.get(workflowRunId).forEach(clientRes => {
                     if (!clientRes.finished) {
@@ -144,8 +155,8 @@ async function sendToDifyWorkflow(content, chatId, telToken, isAutoSend = false,
 
     } catch (error) {
         const errorMsg = `Dify API 请求失败: ${error.message}`;
-        console.error(errorMsg);
-        const logEntry = `[${new Date().toLocaleString('zh-CN')}] Dify API 请求失败。\n请求数据: ${JSON.stringify(requestData)}\n错误: ${error.message}\n`;
+        console.error(`${logPrefix} Dify API 请求失败:`, error);
+        const logEntry = `[${new Date().toLocaleString('zh-CN')}] ${logPrefix} Dify API 请求失败。\n请求数据: ${JSON.stringify(requestData)}\n错误: ${error.message}\n`;
         fs.appendFileSync(DIFY_LOG_FILE, logEntry, 'utf8');
         if (!isAutoSend && res && !res.headersSent) {
             res.status(500).json({ success: false, message: errorMsg, error: error.response ? error.response.data : error.message });
@@ -194,12 +205,26 @@ async function pollTelegramUpdates() {
                         messageContent = update.edited_message;
                     }
 
+                    let from = '未知用户';
+                    let userNameForDify = "abc-123"; // Dify 的 user 字段的默认值
+
                     if (messageContent) {
-                        let from = '未知用户';
-                        if (messageContent.from && messageContent.from.first_name) {
-                            from = messageContent.from.first_name;
+                        if (messageContent.from) {
+                            // 优先尝试组合 first_name 和 last_name
+                            if (messageContent.from.first_name && messageContent.from.last_name) {
+                                from = `${messageContent.from.first_name} ${messageContent.from.last_name}`;
+                                userNameForDify = from;
+                            } else if (messageContent.from.first_name) {
+                                from = messageContent.from.first_name;
+                                userNameForDify = from;
+                            } else if (messageContent.from.username) { // 如果没有first/last name，尝试username
+                                from = messageContent.from.username;
+                                userNameForDify = from;
+                            }
                         } else if (messageContent.sender_chat && messageContent.sender_chat.title) {
-                            from = messageContent.sender_chat.title; // 频道消息的发送者
+                            // 对于频道消息 (channel_post)，从 sender_chat.title 中提取频道名称
+                            from = messageContent.sender_chat.title;
+                            userNameForDify = messageContent.sender_chat.title;
                         }
                         
                         const originalText = messageContent.text || '[非文本消息]'; // 保存原始文本
@@ -213,8 +238,8 @@ async function pollTelegramUpdates() {
                             console.log(`消息符合自动发送条件，已移除关键词。原始: "${originalText}", 处理后: "${textToSend}"`);
                             
                             try {
-                                // 自动发送到 Dify，不等待前端响应
-                                await sendToDifyWorkflow(textToSend, chatId, TELEGRAM_BOT_TOKEN, true);
+                                // 自动发送到 Dify，传递 userNameForDify
+                                await sendToDifyWorkflow(textToSend, chatId, TELEGRAM_BOT_TOKEN, userNameForDify, true);
                                 autoSent = true;
                                 console.log('消息已自动发送到 Dify。');
                             } catch (difyError) {
@@ -327,7 +352,9 @@ app.post('/api/send-to-dify', async (req, res) => {
     const { content, chatId, telToken } = req.body;
     try {
         // 调用封装的 Dify 发送函数，标记为非自动发送
-        await sendToDifyWorkflow(content, chatId, telToken, false, res); // 传递 res 对象
+        // 从请求体中获取 userName
+        const userName = req.body.userName; 
+        await sendToDifyWorkflow(content, chatId, telToken, userName, false, res); // 传递 userName 和 res 对象
     } catch (error) {
         // sendToDifyWorkflow 已经处理了错误日志和响应，这里不需要额外处理
         // 如果 sendToDifyWorkflow 抛出错误，说明在发送响应之前发生了严重错误

@@ -130,6 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     data-content="${encodeURIComponent(msg.text)}" 
                                     data-chatid="${msg.chatId}"
                                     data-teltoken="${currentActiveTelegramToken}"
+                                    data-from="${encodeURIComponent(msg.from)}"
                                     ${msg.autoSent ? 'disabled' : ''}>
                                 ${msg.autoSent ? '已自动发送' : '发送到 Dify'}
                             </button>
@@ -169,6 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const content = decodeURIComponent(button.dataset.content);
         const chatId = button.dataset.chatid;
         const telToken = button.dataset.teltoken; // 获取当前激活的 Telegram Token
+        const userName = decodeURIComponent(button.dataset.from); // 获取发送者名称
 
         button.disabled = true;
         button.textContent = '发送中...';
@@ -178,7 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/send-to-dify', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content, chatId, telToken })
+                body: JSON.stringify({ content, chatId, telToken, userName }) // 包含 userName
             });
             const result = await response.json();
 
